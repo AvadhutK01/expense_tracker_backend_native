@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import CategoryModel, { ICategory as ICat } from '../models/categoriesModel.ts';
-import RecurringCategoryModel from '../models/recurringCategoriesModel.ts';
+import CategoryModel, { ICategory as ICat } from '../models/categoriesModel.js';
+import RecurringCategoryModel from '../models/recurringCategoriesModel.js';
 
 // DTO for incoming category data
 interface CategoryInput {

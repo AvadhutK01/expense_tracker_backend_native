@@ -1,8 +1,8 @@
 import express, { Request, Response } from 'express';
-import categoriesRouter from './routes/categoriesRoute.ts';
+import categoriesRouter from './routes/categoriesRoute.js';
 import dotenv from "dotenv";
-import connectToDatabase from './utils/dbConnection.ts';
-import { scheduleMonthlyRecurringUpdate } from './utils/scheduler.ts';
+import connectToDatabase from './utils/dbConnection.js';
+import { scheduleMonthlyRecurringUpdate } from './utils/scheduler.js';
 
 dotenv.config();
 

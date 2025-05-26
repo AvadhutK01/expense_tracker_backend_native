@@ -6,7 +6,7 @@ import {
   updateSingleCategory,
   getAllCategories,
   payLoanAmount,
-} from '../controllers/categoryController.ts';
+} from '../controllers/categoryController.js';
 
 const router = Router();
 

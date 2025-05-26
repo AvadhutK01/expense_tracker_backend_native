@@ -1,7 +1,7 @@
-// src/utils/scheduler.ts
+// src/utils/scheduler
 import cron from 'node-cron';
-import CategoryModel from '../models/categoriesModel.ts';
-import RecurringCategoryModel from '../models/recurringCategoriesModel.ts';
+import CategoryModel from '../models/categoriesModel.js';
+import RecurringCategoryModel from '../models/recurringCategoriesModel.js';
 
 /**
  * On the 6th of every month at 00:00,

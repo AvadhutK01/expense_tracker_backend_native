@@ -1,0 +1,17 @@
+{
+    "compilerOptions": {
+      "target": "ES2017",           // output language level
+      "module": "ES2020",           // generate ES modules
+      "moduleResolution": "node",   // how modules are resolved
+      "esModuleInterop": true,      // allow default imports from commonjs
+      "forceConsistentCasingInFileNames": true,
+      "strict": true,               // enable all strict checks
+      "outDir": "dist",             // compiled output dir
+      "rootDir": "src",             // your source files
+      "skipLibCheck": true,
+      "noEmit": true,
+      "allowImportingTsExtensions": true
+    },
+    "include": ["src/**/*"]
+  }
+  

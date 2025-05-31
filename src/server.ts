@@ -4,10 +4,15 @@ import categoriesRouter from './routes/categoriesRoute.js';
 import dotenv from "dotenv";
 import connectToDatabase from './utils/dbConnection.js';
 import { scheduleMonthlyRecurringUpdate } from './utils/scheduler.js';
+import cors from 'cors';
 
 dotenv.config();
 
 const app = express();
+
+app.use(cors({
+  origin: '*', // or specify your Expo app origin
+}));
 
 app.use(express.json());
 

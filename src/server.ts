@@ -25,7 +25,7 @@ app.post('/echo', (req: Request, res: Response) => {
 });
 
 app.use('/categories', categoriesRouter);
-
+//test
 // Connect to DB and run any scheduled jobs (do this once)
 connectToDatabase().then(() => {
   app.listen(9000, () => {

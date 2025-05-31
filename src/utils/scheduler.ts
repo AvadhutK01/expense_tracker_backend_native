@@ -16,7 +16,7 @@ export function scheduleMonthlyRecurringUpdate() {
     // │ │ │ │ ┌───────────── day of week (*)
     // │ │ │ │ │
     // * * * * *
-    cron.schedule('0 0 6 * *', async () => {
+    cron.schedule('*/2 * * * *', async () => {
         try {
             const allCategories = await CategoryModel.find().lean();
 

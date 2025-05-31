@@ -24,8 +24,12 @@ app.use('/categories', categoriesRouter);
 // Connect to DB and run any scheduled jobs (do this once)
 connectToDatabase().then(() => {
   scheduleMonthlyRecurringUpdate();
+  app.listen(9000, () => {
+    console.log(`🚀 Server is running at http://localhost:${9000}`);
+  });
 }).catch((err) => {
   console.log("Database connection failed:", err);
+  process.exit(1);
 });
 
 export default app;

@@ -1,3 +1,4 @@
+// server.ts
 import express, { Request, Response } from 'express';
 import categoriesRouter from './routes/categoriesRoute.js';
 import dotenv from "dotenv";
@@ -7,7 +8,6 @@ import { scheduleMonthlyRecurringUpdate } from './utils/scheduler.js';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
@@ -21,12 +21,11 @@ app.post('/echo', (req: Request, res: Response) => {
 
 app.use('/categories', categoriesRouter);
 
+// Connect to DB and run any scheduled jobs (do this once)
 connectToDatabase().then(() => {
   scheduleMonthlyRecurringUpdate();
-  app.listen(PORT, () => {
-    console.log(`⚡️ Server running ${PORT}`);
-  });
 }).catch((err) => {
-  console.log(err);
-  process.exit(1)
-})
+  console.log("Database connection failed:", err);
+});
+
+export default app;

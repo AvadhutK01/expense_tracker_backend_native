@@ -25,7 +25,7 @@ app.use('/categories', categoriesRouter);
 connectToDatabase().then(() => {
   scheduleMonthlyRecurringUpdate();
   app.listen(9000, () => {
-    console.log(`🚀 Server is running at http://localhost:${9000}`);
+    console.log(`🚀 Server is running`);
   });
 }).catch((err) => {
   console.log("Database connection failed:", err);

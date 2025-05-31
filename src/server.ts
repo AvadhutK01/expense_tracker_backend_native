@@ -28,7 +28,6 @@ app.use('/categories', categoriesRouter);
 
 // Connect to DB and run any scheduled jobs (do this once)
 connectToDatabase().then(() => {
-  scheduleMonthlyRecurringUpdate();
   app.listen(9000, () => {
     console.log(`🚀 Server is running`);
   });

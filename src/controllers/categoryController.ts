@@ -396,3 +396,72 @@ export async function payLoanAmount(
         return;
     }
 }
+
+export async function cronController(
+    req: Request,
+    res: Response,
+    next: NextFunction
+) {
+    try {
+        const allCategories = await CategoryModel.find().lean();
+
+        let totalToSave = 0;
+        for (const cat of allCategories) {
+            const name = cat.name.trim().toLowerCase();
+            if (name !== 'loan' && name !== 'savings') {
+                totalToSave += cat.amount;
+            }
+        }
+
+        // Update savings category
+        const savingsCategory = await CategoryModel.findOneAndUpdate(
+            { name: /^savings$/i },
+            { $inc: { amount: totalToSave } },
+            { new: true }
+        );
+
+        if (!savingsCategory) {
+            console.warn('[Update] No "savings" category found to update.');
+        } else {
+            console.log(`[Update] Transferred ${totalToSave} to "savings". New amount: ${savingsCategory.amount}`);
+        }
+
+        // Reset all categories except savings and loan to 0
+        await CategoryModel.updateMany(
+            { name: { $nin: [/^savings$/i, /^loan$/i] } },
+            { $set: { amount: 0 } }
+        );
+        console.log('[Update] Reset amounts of all categories except "savings" and "loan" to 0.');
+
+        // Apply recurring updates
+        const recurringCats = await RecurringCategoryModel.find().lean();
+
+        for (const rec of recurringCats) {
+            const updated = await CategoryModel.findOneAndUpdate(
+                { name: new RegExp(`^${rec.name.trim()}$`, 'i') },
+                { $inc: { amount: rec.amount } },
+                { new: true }
+            );
+
+            if (!updated) {
+                console.warn(
+                    `[Recurring Update] No matching category for "${rec.name}". Skipped.`
+                );
+            } else {
+                console.log(
+                    `[Recurring Update] "${rec.name}" increased by ${rec.amount}. New amount: ${updated.amount}`
+                );
+            }
+        }
+        res.status(200).json({
+            message: "cron ran succesfully!"
+        });
+        return;
+    } catch (err) {
+        console.error('Error running monthly recurring update:', err);
+        res.status(500).json({
+            message: 'Something went wrong!'
+        })
+        return;
+    }
+}

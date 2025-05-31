@@ -11,6 +11,12 @@
         "src": "/(.*)",
         "dest": "src/api.ts"
       }
-    ]
+    ],
+    "crons": [
+       {
+         "path": "/categories/run-cron",
+         "schedule": "* * * * *" 
+       }
+     ]
   }
   

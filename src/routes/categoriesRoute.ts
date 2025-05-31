@@ -6,6 +6,7 @@ import {
   updateSingleCategory,
   getAllCategories,
   payLoanAmount,
+  cronController,
 } from '../controllers/categoryController.js';
 
 const router = Router();
@@ -48,5 +49,7 @@ router.get('/', getAllCategories);
  * @body    { name, amount }
  */
 router.post('/pay-loan', payLoanAmount);
+
+router.get('/run-cron', cronController);
 
 export default router;

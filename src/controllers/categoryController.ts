@@ -465,3 +465,48 @@ export async function cronController(
         return;
     }
 }
+
+export const bankEmiDebitCron = async (req: Request,
+    res: Response,
+    next: NextFunction) => {
+    try {
+        const debitAmount = 965;
+
+        // Debit from "savings"
+        const updatedSavings = await CategoryModel.findOneAndUpdate(
+            { name: /^savings$/i },
+            { $inc: { amount: -debitAmount } },
+            { new: true }
+        );
+
+        if (!updatedSavings) {
+            console.warn('[Bank EMI Debit] "savings" category not found.');
+        } else {
+            console.log(`[Bank EMI Debit] Debited ${debitAmount} from "savings". New amount: ${updatedSavings.amount}`);
+        }
+
+        // Debit from "loan"
+        const updatedLoan = await CategoryModel.findOneAndUpdate(
+            { name: /^loan$/i },
+            { $inc: { amount: -debitAmount } },
+            { new: true }
+        );
+
+        if (!updatedLoan) {
+            console.warn('[Bank EMI Debit] "loan" category not found.');
+        } else {
+            console.log(`[Bank EMI Debit] Debited ${debitAmount} from "loan". New amount: ${updatedLoan.amount}`);
+        }
+        res.status(200).json({
+            message: "cron ran succesfully!"
+        });
+        return;
+    } catch (err) {
+        console.error('Error running bank EMI debit cron:', err);
+        console.error('Error running monthly recurring update:', err);
+        res.status(500).json({
+            message: 'Something went wrong!'
+        })
+        return;
+    }
+};

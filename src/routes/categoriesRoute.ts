@@ -7,6 +7,7 @@ import {
   getAllCategories,
   payLoanAmount,
   cronController,
+  bankEmiDebitCron,
 } from '../controllers/categoryController.js';
 
 const router = Router();
@@ -51,5 +52,7 @@ router.get('/', getAllCategories);
 router.post('/pay-loan', payLoanAmount);
 
 router.get('/run-cron', cronController);
+
+router.get("/run-emi-debit-cron", bankEmiDebitCron);
 
 export default router;

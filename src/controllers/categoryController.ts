@@ -1,16 +1,24 @@
 import { Request, Response, NextFunction } from 'express';
-import CategoryModel, { ICategory as ICat } from '../models/categoriesModel.js';
+import CategoryModel, { ICategory as ICat, ICategory } from '../models/categoriesModel.js';
 import RecurringCategoryModel from '../models/recurringCategoriesModel.js';
+import TransactionLogModel from '../models/transactionLogModel.js';
+import NoteModel from '../models/notesModel.js';
+import { Model } from 'mongoose';
 
-// DTO for incoming category data
 interface CategoryInput {
     name: string;
     amount: number;
+    isRepeat: boolean;
+    isAddToSavings: boolean;
 }
 
 interface UpdateCategoriesRequestBody {
-    mode: 'permanent' | 'temporary';  // extra input
+    mode: 'permanent' | 'temporary';
     categories: CategoryInput[];
+}
+
+interface DeleteCategoriesRequestBody {
+    names: string[];
 }
 
 interface UpdateSingleCategoryInput {
@@ -54,10 +62,8 @@ export async function initiateCategories(
 
         const docs = inputs.map((c) => ({ name: c.name.trim(), amount: c.amount }));
 
-        // Insert all categories into CategoryModel
         const categories = await CategoryModel.insertMany(docs);
 
-        // Filter out "loan" for recurring categories
         const recurringDocs = docs.filter((c) => c.name.trim().toLowerCase() !== 'loan');
         const recurring = await RecurringCategoryModel.insertMany(recurringDocs);
 
@@ -132,12 +138,25 @@ export async function addNewCategories(
         }
 
         const docs = inputs.map(c => ({ name: c.name.trim(), amount: c.amount }));
-        console.log(docs);
 
-        await Promise.all([
-            CategoryModel.insertMany(docs),
-            RecurringCategoryModel.insertMany(docs),
-        ]);
+        const normalDocs = inputs
+            .filter(c => !c.isRepeat)
+            .map(c => ({ name: c.name.trim(), amount: c.amount, isAddToSavings: c.isAddToSavings }));
+
+        const recurringDocs = inputs
+            .filter(c => c.isRepeat)
+            .map(c => ({ name: c.name.trim(), amount: c.amount, isAddToSavings: c.isAddToSavings }));
+
+        const insertOps: Promise<any>[] = [];
+
+        if (normalDocs.length > 0) insertOps.push(CategoryModel.insertMany(normalDocs));
+        if (recurringDocs.length > 0) {
+            insertOps.push(CategoryModel.insertMany(recurringDocs));
+            insertOps.push(RecurringCategoryModel.insertMany(recurringDocs));
+        }
+
+        await Promise.all(insertOps);
+
 
         res.status(201).json({
             message: 'New categories added successfully',
@@ -171,9 +190,10 @@ export async function updateCategories(
             return;
         }
 
-        const modelToUpdate = mode === 'permanent' ? RecurringCategoryModel : CategoryModel;
+        const modelToUpdate = (mode === 'permanent'
+            ? RecurringCategoryModel
+            : CategoryModel) as Model<ICategory>;
 
-        // Normalize names and check duplicates in input
         const seen = new Set<string>();
         for (const cat of categories) {
             const key = cat.name.trim().toLowerCase();
@@ -184,7 +204,6 @@ export async function updateCategories(
             seen.add(key);
         }
 
-        // Update each category by name, if it exists
         const updatePromises = categories.map(({ name, amount }) =>
             modelToUpdate.findOneAndUpdate(
                 { name: new RegExp(`^${name.trim()}$`, 'i') },
@@ -195,7 +214,6 @@ export async function updateCategories(
 
         const updatedDocs = await Promise.all(updatePromises);
 
-        // Check which categories were not found
         const notFound = categories
             .map((c, idx) => ({ cat: c, updated: updatedDocs[idx] }))
             .filter(({ updated }) => !updated)
@@ -212,16 +230,13 @@ export async function updateCategories(
             message: `Categories updated successfully in ${mode} mode.`,
             updatedCount: updatedDocs.length,
         });
-        return;
     } catch (err) {
         console.error('updateCategories message:', err);
         res.status(500).json({
             message: 'Something went wrong!'
-        })
-        return;
+        });
     }
 }
-
 export async function updateSingleCategory(
     req: Request,
     res: Response,
@@ -247,19 +262,32 @@ export async function updateSingleCategory(
             return;
         }
 
+        const previousAmount = category.amount;
         let newAmount: number;
+
         if (type === 'add') {
-            newAmount = category.amount + amount;
-        } else { // subtract
-            newAmount = category.amount - amount;
+            newAmount = previousAmount + amount;
+        } else {
+            newAmount = previousAmount - amount;
             if (newAmount < 0) {
-                res.status(400).json({ message: `Subtraction would result in negative amount for category "${name}".` });
+                res.status(400).json({
+                    message: `Subtraction would result in negative amount for category "${name}".`,
+                });
                 return;
             }
         }
 
         category.amount = newAmount;
         await category.save();
+
+        await TransactionLogModel.create({
+            categoryId: category._id,
+            categoryName: category.name,
+            changeType: type,
+            changeAmount: amount,
+            previousAmount,
+            newAmount,
+        });
 
         res.status(200).json({
             message: `Category "${name}" updated successfully.`,
@@ -285,14 +313,37 @@ export async function getAllCategories(
 ) {
     try {
         const { type = '' } = req.query;
-        console.log({type});
-        let categories = [];
 
-        if(type === 'recurring'){
-            categories = await RecurringCategoryModel.find().lean()
+        const [categoriesCount, recurringCount] = await Promise.all([
+            CategoryModel.countDocuments(),
+            RecurringCategoryModel.countDocuments(),
+        ]);
+
+        if (categoriesCount === 0 && recurringCount === 0) {
+            console.log('Initializing default categories...');
+
+            const baseCategories = [
+                { name: 'loan', amount: 0 },
+                { name: 'savings', amount: 0 },
+            ];
+
+            const recurringCategories = [
+                { name: 'savings', amount: 0 },
+            ];
+
+            await Promise.all([
+                CategoryModel.insertMany(baseCategories),
+                RecurringCategoryModel.insertMany(recurringCategories),
+            ]);
+
+            console.log('Default categories initialized.');
         }
-        else{
-            categories = await CategoryModel.find().lean()
+
+        let categories = [];
+        if (type === 'recurring') {
+            categories = await RecurringCategoryModel.find().lean();
+        } else {
+            categories = await CategoryModel.find().lean();
         }
 
         res.status(200).json({
@@ -304,8 +355,8 @@ export async function getAllCategories(
     } catch (err) {
         console.error('getAllCategories message:', err);
         res.status(500).json({
-            message: 'Something went wrong!'
-        })
+            message: 'Something went wrong!',
+        });
         return;
     }
 }
@@ -318,7 +369,6 @@ export async function payLoanAmount(
     try {
         const { name, amount }: CategoryInput = req.body;
 
-        // ----- validation -----
         if (!name || typeof name !== 'string') {
             res
                 .status(400)
@@ -338,8 +388,6 @@ export async function payLoanAmount(
             return;
         }
 
-        // ----- fetch documents -----
-        // target category
         const category = await CategoryModel.findOne({
             name: new RegExp(`^${name.trim()}$`, 'i'),
         });
@@ -349,7 +397,7 @@ export async function payLoanAmount(
                 .json({ message: `Category "${name}" not found.` });
             return;
         }
-        // loan category
+
         const loanCat = await CategoryModel.findOne({
             name: new RegExp(`^loan$`, 'i'),
         });
@@ -360,7 +408,6 @@ export async function payLoanAmount(
             return;
         }
 
-        // ----- edge‑case checks -----
         if (category.amount < amount) {
             res.status(400).json({
                 message: `Insufficient funds in "${category.name}". Current: ${category.amount}, requested: ${amount}.`,
@@ -374,7 +421,6 @@ export async function payLoanAmount(
             return;
         }
 
-        // ----- perform updates -----
         category.amount -= amount;
         loanCat.amount -= amount;
 
@@ -408,12 +454,12 @@ export async function cronController(
         let totalToSave = 0;
         for (const cat of allCategories) {
             const name = cat.name.trim().toLowerCase();
-            if (name !== 'loan' && name !== 'savings') {
+            const isAddToSavings = cat.isAddToSavings || false;
+            if (name !== 'loan' && name !== 'savings' && isAddToSavings) {
                 totalToSave += cat.amount;
             }
         }
 
-        // Update savings category
         const savingsCategory = await CategoryModel.findOneAndUpdate(
             { name: /^savings$/i },
             { $inc: { amount: totalToSave } },
@@ -426,14 +472,12 @@ export async function cronController(
             console.log(`[Update] Transferred ${totalToSave} to "savings". New amount: ${savingsCategory.amount}`);
         }
 
-        // Reset all categories except savings and loan to 0
         await CategoryModel.updateMany(
             { name: { $nin: [/^savings$/i, /^loan$/i] } },
             { $set: { amount: 0 } }
         );
         console.log('[Update] Reset amounts of all categories except "savings" and "loan" to 0.');
 
-        // Apply recurring updates
         const recurringCats = await RecurringCategoryModel.find().lean();
 
         for (const rec of recurringCats) {
@@ -472,7 +516,6 @@ export const bankEmiDebitCron = async (req: Request,
     try {
         const debitAmount = 965;
 
-        // Debit from "savings"
         const updatedSavings = await CategoryModel.findOneAndUpdate(
             { name: /^savings$/i },
             { $inc: { amount: -debitAmount } },
@@ -485,7 +528,6 @@ export const bankEmiDebitCron = async (req: Request,
             console.log(`[Bank EMI Debit] Debited ${debitAmount} from "savings". New amount: ${updatedSavings.amount}`);
         }
 
-        // Debit from "loan"
         const updatedLoan = await CategoryModel.findOneAndUpdate(
             { name: /^loan$/i },
             { $inc: { amount: -debitAmount } },
@@ -507,6 +549,173 @@ export const bankEmiDebitCron = async (req: Request,
         res.status(500).json({
             message: 'Something went wrong!'
         })
+        return;
+    }
+};
+
+export async function deleteCategory(
+    req: Request<{}, {}, DeleteCategoriesRequestBody>,
+    res: Response,
+    next: NextFunction
+) {
+    try {
+        const { names } = req.body;
+
+        if (!Array.isArray(names) || names.length === 0) {
+            res.status(400).json({ message: 'Invalid input: "names" must be a non-empty array of strings.' });
+            return;
+        }
+
+        const lowerNames = names.map((n) => n.trim().toLowerCase()).filter(Boolean);
+
+        if (lowerNames.length === 0) {
+            res.status(400).json({ message: 'All category names are empty or invalid.' });
+            return;
+        }
+
+        const protectedCats = ['loan', 'savings'];
+        if (lowerNames.some((n) => protectedCats.includes(n))) {
+            res.status(400).json({
+                message: 'Cannot delete protected categories: "loan" or "savings".',
+            });
+            return;
+        }
+
+        const regexList = lowerNames.map((n) => new RegExp(`^${n}$`, 'i'));
+
+        const [deletedFromMain, deletedFromRecurring] = await Promise.all([
+            CategoryModel.deleteMany({ name: { $in: regexList } }),
+            RecurringCategoryModel.deleteMany({ name: { $in: regexList } }),
+        ]);
+        const totalDeleted = (deletedFromMain?.deletedCount || 0) + (deletedFromRecurring?.deletedCount || 0);
+
+        if (totalDeleted === 0) {
+            res.status(404).json({ message: 'No matching categories found to delete.' });
+            return;
+        }
+
+        res.status(200).json({
+            message: `Deleted ${totalDeleted} categories successfully.`,
+            deletedFrom: {
+                CategoryModel: deletedFromMain?.deletedCount || 0,
+                RecurringCategoryModel: deletedFromRecurring?.deletedCount || 0,
+            },
+        });
+        return;
+    } catch (err) {
+        console.error('deleteCategory message:', err);
+        res.status(500).json({
+            message: 'Something went wrong while deleting categories.',
+        });
+        return;
+    }
+}
+
+export async function revertLatestTransaction(
+    req: Request,
+    res: Response,
+    next: NextFunction
+) {
+    try {
+        const latestLog = await TransactionLogModel.findOne().sort({ createdAt: -1 });
+
+        if (!latestLog) {
+            res.status(404).json({ message: 'No transaction logs found to revert.' });
+            return;
+        }
+
+        const category = await CategoryModel.findById(latestLog.categoryId);
+        if (!category) {
+            res.status(404).json({ message: 'Associated category not found.' });
+            return;
+        }
+
+        category.amount = latestLog.previousAmount;
+        await category.save();
+
+        await TransactionLogModel.findByIdAndDelete(latestLog._id);
+
+        res.status(200).json({
+            message: `Reverted latest transaction for category "${category.name}".`,
+            revertedTransaction: {
+                category: category.name,
+                revertedToAmount: category.amount,
+                originalChange: {
+                    type: latestLog.changeType,
+                    amount: latestLog.changeAmount,
+                    previousAmount: latestLog.previousAmount,
+                    newAmount: latestLog.newAmount,
+                },
+            },
+        });
+    } catch (err) {
+        console.error('revertLatestTransaction error:', err);
+        res.status(500).json({ message: 'Something went wrong while reverting transaction.' });
+    }
+}
+
+export const createOrUpdateNote = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
+    try {
+        let { content } = req.body;
+
+        if (!content || typeof content !== 'string' || !content.trim()) {
+            content = " ";
+        }
+
+        const existingNote = await NoteModel.findOne();
+
+        if (!existingNote) {
+            const newNote = await NoteModel.create({ content });
+            res.status(201).json({
+                message: 'Note created successfully.',
+                note: newNote,
+            });
+            return;
+        }
+
+        existingNote.content = content.trim();
+        await existingNote.save();
+
+        res.status(200).json({
+            message: 'Note updated successfully.',
+            note: existingNote,
+        });
+        return;
+    } catch (err) {
+        console.error('createOrUpdateNote error:', err);
+        res.status(500).json({
+            message: 'Something went wrong while creating or updating note.',
+        });
+        return;
+    }
+};
+
+export const getNote = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
+    try {
+        const note = await NoteModel.findOne();
+
+        if (!note) {
+            res.status(200).json({ message: 'Note fetched successfully.' });
+            return;
+        }
+
+        res.status(200).json({
+            message: 'Note fetched successfully.',
+            note,
+        });
+    } catch (err) {
+        console.error('getNote error:', err);
+        res.status(500).json({
+            message: 'Something went wrong while fetching note.',
+        });
         return;
     }
 };

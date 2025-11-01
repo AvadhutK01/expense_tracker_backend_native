@@ -1,4 +1,3 @@
-// api.ts
-import app from './server.js'; // or './server.ts' if compiling directly
+import app from './server.js';
 
 export default app;

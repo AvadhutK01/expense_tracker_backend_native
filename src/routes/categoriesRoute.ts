@@ -8,6 +8,10 @@ import {
   payLoanAmount,
   cronController,
   bankEmiDebitCron,
+  deleteCategory,
+  revertLatestTransaction,
+  createOrUpdateNote,
+  getNote,
 } from '../controllers/categoryController.js';
 
 const router = Router();
@@ -32,8 +36,8 @@ router.post('/', addNewCategories);
 router.put('/', updateCategories);
 
 /**
- * @route   PATCH  /categories
- * @desc    Update a single category amount (add/subtract)
+ * @route   PATCH   /categories
+ * @desc    Update a single category (permanent or temporary)
  * @body    { name, amount, type: 'add' | 'subtract' }
  */
 router.patch('/', updateSingleCategory);
@@ -45,11 +49,24 @@ router.patch('/', updateSingleCategory);
 router.get('/', getAllCategories);
 
 /**
+ * @route   DELETE  /categories
+ * @desc    Delete a category
+ * @body    { name }
+ */
+router.post('/delete-categories', deleteCategory);
+
+/**
  * @route   POST   /categories/pay-loan
  * @desc    Pay down loan from a specific category
  * @body    { name, amount }
  */
 router.post('/pay-loan', payLoanAmount);
+
+router.post('/revert-latest-transaction', revertLatestTransaction);
+
+router.post('/note', createOrUpdateNote);
+
+router.get('/note', getNote);
 
 router.get('/run-cron', cronController);
 

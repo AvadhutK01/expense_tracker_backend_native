@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 export interface ICategory extends mongoose.Document {
   name: string;
   amount: number;
+  isAddToSavings: boolean;
 }
 
 const CategorySchema = new mongoose.Schema<ICategory>(
@@ -17,6 +18,11 @@ const CategorySchema = new mongoose.Schema<ICategory>(
       required: true,
       min: 0,
     },
+    isAddToSavings: {
+      type: Boolean,
+      default: true,
+      required: false
+    }
   },
   {
     timestamps: true,

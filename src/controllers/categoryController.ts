@@ -4,12 +4,26 @@ import RecurringCategoryModel from '../models/recurringCategoriesModel.js';
 import TransactionLogModel from '../models/transactionLogModel.js';
 import NoteModel from '../models/notesModel.js';
 import { Model } from 'mongoose';
+import AutoDebitModel from '../models/autoDebitModel.js';
 
 interface CategoryInput {
     name: string;
     amount: number;
     isRepeat: boolean;
     isAddToSavings: boolean;
+}
+
+interface AutoDebitInput {
+  amount: number;
+  categoryToDeduct: string;
+  debitDateTime: Date;
+}
+
+interface UpdateAutoDebitInput {
+  _id: string;
+  amount?: number;
+  categoryToDeduct?: string;
+  debitDateTime?: Date;
 }
 
 interface UpdateCategoriesRequestBody {
@@ -26,7 +40,6 @@ interface UpdateSingleCategoryInput {
     amount: number;
     type: 'add' | 'subtract';
 }
-
 
 /**
  * Clears existing entries and initializes both Category and RecurringCategory collections.
@@ -58,6 +71,9 @@ export async function initiateCategories(
         await Promise.all([
             CategoryModel.deleteMany({}),
             RecurringCategoryModel.deleteMany({}),
+            TransactionLogModel.deleteMany({}),
+            NoteModel.deleteMany({}),
+            AutoDebitModel.deleteMany({}),
         ]);
 
         const docs = inputs.map((c) => ({ name: c.name.trim(), amount: c.amount }));
@@ -719,3 +735,210 @@ export const getNote = async (
         return;
     }
 };
+
+export async function borrowMoney(
+    req: Request,
+    res: Response,
+    next: NextFunction
+) {
+    try {
+        const { name, amount }: { name: string; amount: number } = req.body;
+
+        if (!name || typeof name !== 'string') {
+            res.status(400).json({ message: 'Invalid input: "name" (string) is required.' });
+            return;
+        }
+
+        if (typeof amount !== 'number' || isNaN(amount)) {
+            res.status(400).json({ message: 'Invalid input: "amount" (number) is required.' });
+            return;
+        }
+
+        if (amount <= 0) {
+            res.status(400).json({ message: '"amount" must be greater than zero.' });
+            return;
+        }
+
+        const category = await CategoryModel.findOne({
+            name: new RegExp(`^${name.trim()}$`, 'i'),
+        });
+
+        if (!category) {
+            res.status(404).json({ message: `Category "${name}" not found.` });
+            return;
+        }
+
+        const loanCat = await CategoryModel.findOne({
+            name: /^loan$/i,
+        });
+
+        if (!loanCat) {
+            res.status(500).json({ message: 'Internal error: "loan" category missing.' });
+            return;
+        }
+
+        category.amount += amount;
+        loanCat.amount += amount;
+
+        await Promise.all([category.save(), loanCat.save()]);
+
+        res.status(200).json({
+            message: `Lent ${amount} to "${category.name}" and incremented "loan" by the same amount.`,
+            categories: [
+                { name: category.name, amount: category.amount },
+                { name: loanCat.name, amount: loanCat.amount },
+            ],
+        });
+        return;
+    } catch (err) {
+        console.error('lendMoney message:', err);
+        res.status(500).json({ message: 'Something went wrong!' });
+        return;
+    }
+}
+
+export async function getAllAutoDebits(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const autoDebits = await AutoDebitModel.find().populate('categoryToDeduct').lean();
+
+    res.status(200).json({
+      message: 'Fetched all auto-debit records successfully.',
+      count: autoDebits.length,
+      autoDebits,
+    });
+  } catch (err) {
+    console.error('getAllAutoDebits error:', err);
+    res.status(500).json({ message: 'Something went wrong while fetching auto-debits.' });
+  }
+}
+
+export async function createManyAutoDebits(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const inputs: AutoDebitInput[] = req.body;
+
+    if (!Array.isArray(inputs) || inputs.length === 0) {
+      res.status(400).json({ message: 'Input must be a non-empty array.' });
+      return;
+    }
+
+    const categoryNames = inputs.map((i) => i.categoryToDeduct.trim().toLowerCase());
+    const categories = await CategoryModel.find({
+      name: { $in: categoryNames.map((n) => new RegExp(`^${n}$`, 'i')) },
+    }).lean();
+
+    const foundNames = categories.map((c) => c.name.toLowerCase());
+    const missingNames = categoryNames.filter((n) => !foundNames.includes(n));
+
+    if (missingNames.length > 0) {
+      res.status(400).json({
+        message: `Invalid or missing categories: ${missingNames.join(', ')}`,
+      });
+      return;
+    }
+
+    const categoryMap = new Map(
+      categories.map((c) => [c.name.toLowerCase(), c._id])
+    );
+
+    const docs = inputs.map((input) => ({
+      amount: input.amount,
+      categoryToDeduct: categoryMap.get(input.categoryToDeduct.trim().toLowerCase()),
+      debitDateTime: new Date(input.debitDateTime),
+    }));
+
+    const inserted = await AutoDebitModel.insertMany(docs);
+
+    res.status(201).json({
+      message: 'Auto-debits created successfully.',
+      count: inserted.length,
+      autoDebits: inserted,
+    });
+  } catch (err) {
+    console.error('createManyAutoDebits error:', err);
+    res.status(500).json({ message: 'Something went wrong while creating auto-debits.' });
+  }
+}
+
+export async function updateManyAutoDebits(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const updates: UpdateAutoDebitInput[] = req.body;
+
+    if (!Array.isArray(updates) || updates.length === 0) {
+      res.status(400).json({ message: 'Input must be a non-empty array.' });
+      return;
+    }
+
+    const categoryNames: string[] = Array.from(
+      new Set(
+        updates
+          .map((u) => u.categoryToDeduct?.trim().toLowerCase())
+          .filter((n): n is string => typeof n === 'string' && n.length > 0)
+      )
+    );
+
+    const categoryMap = new Map<string, string>();
+
+    if (categoryNames.length > 0) {
+      const categories = await CategoryModel.find({
+        name: { $in: categoryNames.map((n) => new RegExp(`^${n}$`, 'i')) },
+      }).lean();
+
+      const foundNames = categories.map((c) => c.name.toLowerCase());
+      const missing = categoryNames.filter((n) => !foundNames.includes(n));
+
+      if (missing.length > 0) {
+        res.status(400).json({
+          message: `Invalid categories in updates: ${missing.join(', ')}`,
+        });
+        return;
+      }
+
+      for (const cat of categories) {
+        categoryMap.set(cat.name.toLowerCase(), cat._id.toString());
+      }
+    }
+
+    const updatePromises = updates.map(async (update) => {
+      const { _id, amount, categoryToDeduct, debitDateTime } = update;
+      const updateFields: any = {};
+
+      if (amount !== undefined) updateFields.amount = amount;
+      if (categoryToDeduct)
+        updateFields.categoryToDeduct = categoryMap.get(categoryToDeduct.trim().toLowerCase());
+      if (debitDateTime) updateFields.debitDateTime = new Date(debitDateTime);
+
+      return AutoDebitModel.findByIdAndUpdate(_id, updateFields, { new: true });
+    });
+
+    const updatedDocs = await Promise.all(updatePromises);
+
+    const notFound = updatedDocs.filter((doc) => !doc).length;
+    if (notFound > 0) {
+      res.status(404).json({
+        message: `${notFound} auto-debit records not found for update.`,
+      });
+      return;
+    }
+
+    res.status(200).json({
+      message: 'Auto-debit records updated successfully.',
+      updatedCount: updatedDocs.length,
+      updatedDocs,
+    });
+  } catch (err) {
+    console.error('updateManyAutoDebits error:', err);
+    res.status(500).json({ message: 'Something went wrong while updating auto-debits.' });
+  }
+}

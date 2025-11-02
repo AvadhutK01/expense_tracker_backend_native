@@ -12,6 +12,10 @@ import {
   revertLatestTransaction,
   createOrUpdateNote,
   getNote,
+  borrowMoney,
+  getAllAutoDebits,
+  createManyAutoDebits,
+  updateManyAutoDebits,
 } from '../controllers/categoryController.js';
 
 const router = Router();
@@ -71,5 +75,13 @@ router.get('/note', getNote);
 router.get('/run-cron', cronController);
 
 router.get("/run-emi-debit-cron", bankEmiDebitCron);
+
+router.post("/borrow-money", borrowMoney);
+
+router.get("/auto-debits", getAllAutoDebits)
+
+router.post("/auto-debits", createManyAutoDebits);
+
+router.put("/auto-debits", updateManyAutoDebits);
 
 export default router;
